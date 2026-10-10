@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>2048 — свайпы и анимации</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        html, body {
+            overscroll-behavior: none;
+        }
+        body {
+            background: #faf8ef;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            padding: 16px;
+            touch-action: none;
+        }
+        .game-container {
+            background: #bbada0;
+            border-radius: 12px;
+            padding: 16px;
+            width: 100%;
+            max-width: 520px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .title {
+            font-size: 48px;
+            font-weight: 800;
+            color: #776e65;
+            margin: 0;
+            line-height: 1;
+        }
+        .score-container {
+            background: #bbada0;
+            padding: 8px 20px;
+            border-radius: 30px;
+            color: #f9f6f2;
+            font-weight: 700;
+            font-size: 22px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        .score-label {
+            font-size: 14px;
+            opacity: 0.8;
+            font-weight: 500;
+        }
+        .score-value {
+            font-size: 26px;
+            min-width: 60px;
+            text-align: center;
+            transition: transform 0.15s ease;
+        }
+        .score-value.bump {
+            transform: scale(1.25);
+        }
+        .new-game-btn {
+            background: #8f7a66;
+            border: none;
+            color: #f9f6f2;
+            font-weight: 700;
+            font-size: 16px;
+            padding: 12px 24px;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: background 0.15s, transform 0.1s;
+            box-shadow: 0 4px 0 #6b5a4c;
+            letter-spacing: 0.5px;
+        }
+        .new-game-btn:hover {
+            background: #9f8b77;
+        }
+        .new-game-btn:active {
+            transform: translateY(2px);
+            box-shadow: 0 2px 0 #6b5a4c;
+        }
+
+        /* -------- Игровое поле -------- */
+        .grid-wrap {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            background: #bbada0;
+            border-radius: 10px;
+        }
+        /* Фоновые клетки */
+        .grid-bg {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(4, 1fr);
+            gap: 12px;
+            padding: 0;
+        }
+        .grid-bg .bg-cell {
+            background: #cdc1b4;
+            border-radius: 8px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+        }
+        /* Слой плиток */
+        .tile-container {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+        }
+        .tile {
+            position: absolute;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: 800;
+            color: #776e65;
+            border-radius: 8px;
+            background: #eee4da;
+            transition: transform 0.14s cubic-bezier(0.25, 0.1, 0.25, 1),
+                        background 0.15s ease,
+                        color 0.15s ease,
+                        box-shadow 0.15s ease;
+            will-change: transform;
+            z-index: 2;
+        }
+        /* Анимация появления плитки */
+        .tile.new {
+            animation: appear 0.2s cubic-bezier(0.5, 0, 0.75, 1.2) backwards;
+        }
+        @keyframes appear {
+            0%   { transform: scale(0) translate(var(--tx, 0), var(--ty, 0)); opacity: 0; }
+            60%  { transform: scale(1.08) translate(var(--tx, 0), var(--ty, 0)); opacity: 1; }
+            100% { transform: scale(1) translate(var(--tx, 0), var(--ty, 0)); opacity: 1; }
+        }
+        /* Анимация слияния плитки */
+        .tile.merged {
+            animation: pop 0.2s ease;
+            z-index: 3;
+        }
+        @keyframes pop {
+            0%   { transform: scale(1) translate(var(--tx, 0), var(--ty, 0)); }
+            50%  { transform: scale(1.22) translate(var(--tx, 0), var(--ty, 0)); }
+            100% { transform: scale(1) translate(var(--tx, 0), var(--ty, 0)); }
+        }
+
+        /* Цвета плиток */
+        .tile[data-value="2"] { background: #eee4da; color: #776e65; }
+        .tile[data-value="4"] { background: #ede0c8; color: #776e65; }
+        .tile[data-value="8"] { background: #f2b179; color: #f9f6f2; }
+        .tile[data-value="16"] { background: #f59563; color: #f9f6f2; }
+        .tile[data-value="32"] { background: #f67c5f; color: #f9f6f2; }
+        .tile[data-value="64"] { background: #f65e3b; color: #f9f6f2; }
+        .tile[data-value="128"] { background: #edcf72; color: #f9f6f2; }
+        .tile[data-value="256"] { background: #edcc61; color: #f9f6f2; }
+        .tile[data-value="512"] { background: #edc850; color: #f9f6f2; }
+        .tile[data-value="1024"] { background: #edc53f; color: #f9f6f2; }
+        .tile[data-value="2048"] { background: #edc22e; color: #f9f6f2; box-shadow: 0 0 20px rgba(237, 194, 46, 0.5); }
+        .tile[data-value="4096"] { background: #3c3a32; color: #f9f6f2; }
+        .tile[data-value="8192"] { background: #2e2c26; color: #f9f6f2; }
+
+        /* -------- Оверлей -------- */
+        .game-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(238, 228, 218, 0.73);
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            color: #776e65;
+            z-index: 20;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.35s ease;
+            backdrop-filter: blur(2px);
+        }
+        .game-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .overlay-text {
+            font-size: clamp(32px, 10vw, 60px);
+            margin-bottom: 20px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            animation: dropIn 0.4s cubic-bezier(0.5, 0, 0.75, 1.2);
+        }
+        @keyframes dropIn {
+            0%   { transform: translateY(-30px) scale(0.8); opacity: 0; }
+            100% { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        .overlay-btn {
+            background: #8f7a66;
+            border: none;
+            color: #f9f6f2;
+            font-weight: 700;
+            font-size: 18px;
+            padding: 12px 32px;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 4px 0 #6b5a4c;
+            transition: 0.1s;
+        }
+        .overlay-btn:active {
+            transform: translateY(2px);
+            box-shadow: 0 2px 0 #6b5a4c;
+        }
+
+        .info {
+            color: #776e65;
+            font-size: 14px;
+            margin-top: 12px;
+            text-align: center;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .info .swipe-icon {
+            font-size: 18px;
+        }
+        kbd {
+            background: #bbada0;
+            color: #f9f6f2;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 700;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="header">
+            <h1 class="title">2048</h1>
+            <div class="score-container">
+                <span class="score-label">СЧЁТ</span>
+                <span class="score-value" id="score">0</span>
+            </div>
+            <button class="new-game-btn" id="newGame">НОВАЯ ИГРА</button>
+        </div>
+
+        <div class="grid-wrap" id="gridWrap">
+            <div class="grid-bg" id="gridBg"></div>
+            <div class="tile-container" id="tileContainer"></div>
+            <div class="game-overlay" id="overlay">
+                <div class="overlay-text" id="overlayText">ИГРА ОКОНЧЕНА</div>
+                <button class="overlay-btn" id="overlayBtn">ПОПРОБОВАТЬ СНОВА</button>
+            </div>
+        </div>
+
+        <div class="info">
+            <span class="swipe-icon">👆</span> Свайпайте или используйте <kbd>←</kbd><kbd>↑</kbd><kbd>→</kbd><kbd>↓</kbd>
+        </div>
+    </div>
+
+    <script>
+        (function(){
+            // ---------- КОНСТАНТЫ ----------
+            const SIZE = 4;
+            const WIN_VALUE = 2048;
+            const SWIPE_THRESHOLD = 25;
+
+            // ---------- СОСТОЯНИЕ ----------
+            let board = [];
+            let score = 0;
+            let gameOver = false;
+            let won = false;
+            let continueAfterWin = false;
+            let tileIdCounter = 0;
+
+            // DOM
+            const gridBgEl = document.getElementById('gridBg');
+            const tileContainerEl = document.getElementById('tileContainer');
+            const gridWrapEl = document.getElementById('gridWrap');
+            const scoreEl = document.getElementById('score');
+            const overlayEl = document.getElementById('overlay');
+            const overlayTextEl = document.getElementById('overlayText');
+            const overlayBtn = document.getElementById('overlayBtn');
+            const newGameBtn = document.getElementById('newGame');
+
+            // ---------- Создание фоновых клеток ----------
+            function createBackground() {
+                gridBgEl.innerHTML = '';
+                for (let i = 0; i < SIZE * SIZE; i++) {
+                    const c = document.createElement('div');
+                    c.classList.add('bg-cell');
+                    gridBgEl.appendChild(c);
+                }
+            }
+
+            // ---------- Утилиты для геометрии ----------
+            // Позиция клетки в пикселях рассчитывается через размер плитки
+            // и отступ gap. Проценты берутся из родителя.
+            // Пусть tileSize и gap будем вычислять динамически через getComputedStyle.
+            function getMetrics() {
+                const wrapRect = gridWrapEl.getBoundingClientRect();
+                const gap = parseFloat(getComputedStyle(gridBgEl).gap) || 12;
+                const totalGap = gap * (SIZE - 1);
+                const tileSize = (wrapRect.width - totalGap) / SIZE;
+                return { tileSize, gap };
+            }
+
+            // Позиция в пикселях для (row, col) относительно tileContainer
+            function getPosition(row, col) {
+                const { tileSize, gap } = getMetrics();
+                const x = col * (tileSize + gap);
+                const y = row * (tileSize + gap);
+                return { x, y, tileSize };
+            }
+
+            // ---------- Хранилище DOM-плиток ----------
+            // tiles[r][c] = { id, value, el } или null
+            let tileGrid = [];
+
+            function clearTiles() {
+                tileContainerEl.innerHTML = '';
+                tileGrid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+            }
+
+            function createTileElement(value, row, col, isNew, isMerged) {
+                const el = document.createElement('div');
+                el.classList.add('tile');
+                el.dataset.value = value;
+                el.textContent = value;
+
+                const { x, y, tileSize } = getPosition(row, col);
+                // Сохраняем координаты через CSS-переменные, чтобы анимация появления работала
+                el.style.setProperty('--tx', x + 'px');
+                el.style.setProperty('--ty', y + 'px');
+                el.style.width = tileSize + 'px';
+                el.style.height = tileSize + 'px';
+                el.style.transform = `translate(${x}px, ${y}px)`;
+
+                if (isNew) el.classList.add('new');
+                if (isMerged) el.classList.add('merged');
+
+                // Размер шрифта адаптивный — зависит от длины числа
+                const digits = String(value).length;
+                let fontSize;
+                if (digits <= 2) fontSize = tileSize * 0.45;
+                else if (digits === 3) fontSize = tileSize * 0.38;
+                else if (digits === 4) fontSize = tileSize * 0.30;
+                else fontSize = tileSize * 0.24;
+                el.style.fontSize = fontSize + 'px';
+
+                return el;
+            }
+
+            // ---------- Отрисовка (полная синхронизация) ----------
+            function renderBoard({ newPositions = [], mergedPositions = [] } = {}) {
+                // Удаляем все плитки и создаём заново по текущему board.
+                // Это простой способ, но при этом плитки "пересоздаются",
+                // поэтому для анимации сдвига нужен другой подход — см. move().
+                // Для первичной отрисовки/после initBoard — используется.
+
+                // Для простоты: если хотим анимацию — используем animateMove().
+                // Здесь делаем статичную отрисовку.
+                clearTiles();
+                for (let r = 0; r < SIZE; r++) {
+                    for (let c = 0; c < SIZE; c++) {
+                        if (board[r][c] === 0) continue;
+                        const isNew = newPositions.some(p => p.r === r && p.c === c);
+                        const isMerged = mergedPositions.some(p => p.r === r && p.c === c);
+                        const el = createTileElement(board[r][c], r, c, isNew, isMerged);
+                        tileContainerEl.appendChild(el);
+                        tileGrid[r][c] = { value: board[r][c], el };
+                    }
+                }
+            }
+
+            // ---------- Отрисовка начального состояния ----------
+            function renderFull() {
+                clearTiles();
+                for (let r = 0; r < SIZE; r++) {
+                    for (let c = 0; c < SIZE; c++) {
+                        if (board[r][c] === 0) continue;
+                        const el = createTileElement(board[r][c], r, c, false, false);
+                        tileContainerEl.appendChild(el);
+                        tileGrid[r][c] = { value: board[r][c], el };
+                    }
+                }
+                scoreEl.textContent = score;
+            }
+
+            // ---------- Инициализация ----------
+            function initBoard() {
+                board = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+                score = 0;
+                gameOver = false;
+                won = false;
+                continueAfterWin = false;
+                tileIdCounter = 0;
+                hideOverlay();
+                clearTiles();
+
+                // Добавляем две плитки с анимацией появления
+                const spots = addRandomTile(true);
+                addRandomTile(true);
+
+                renderFull();
+                // Применяем анимацию "new" для только что добавленных
+                // (renderFull создаёт без new, поэтому вручную)
+                // Проще: пересоздать с флагом
+                clearTiles();
+                for (let r = 0; r < SIZE; r++) {
+                    for (let c = 0; c < SIZE; c++) {
+                        if (board[r][c] === 0) continue;
+                        const el = createTileElement(board[r][c], r, c, true, false);
+                        tileContainerEl.appendChild(el);
+                        tileGrid[r][c] = { value: board[r][c], el };
+                    }
+                }
+                scoreEl.textContent = score;
+            }
+
+            // ---------- Случайная плитка ----------
+            function addRandomTile(isInitial) {
+                const empty = [];
+                for (let r = 0; r < SIZE; r++) {
+                    for (let c = 0; c < SIZE; c++) {
+                        if (board[r][c] === 0) empty.push({ r, c });
+                    }
+                }
+                if (empty.length === 0) return null;
+                const { r, c } = empty[Math.floor(Math.random() * empty.length)];
+                board[r][c] = Math.random() < 0.9 ? 2 : 4;
+                return { r, c };
+            }
+
+            // ---------- Логика слайда влево для одной строки ----------
+            // Возвращает: { newRow, moves, merges }
+            // moves: [{fromC, toC, value}] — какие плитки куда поехали
+            // merges: [{c, value}] — в каких клетках появились объединённые плитки
+            function slideLeftRow(row) {
+                const filtered = [];
+                // Собираем ненулевые с их исходными индексами
+                for (let c = 0; c < SIZE; c++) {
+                    if (row[c] !== 0) filtered.push({ value: row[c], fromC: c });
+                }
+                const result = [];
+                const merges = [];
+                const moves = [];
+
+                let i = 0;
+                while (i < filtered.length) {
+                    if (i + 1 < filtered.length && filtered[i].value === filtered[i + 1].value) {
+                        // Слияние
+                        const newValue = filtered[i].value * 2;
+                        score += newValue;
+                        if (newValue === WIN_VALUE && !won) won = true;
+                        const targetC = result.length;
+                        // обе плитки едут в targetC
+                        moves.push({ fromC: filtered[i].fromC, toC: targetC, value: filtered[i].value });
+                        moves.push({ fromC: filtered[i + 1].fromC, toC: targetC, value: filtered[i + 1].value });
+                        result.push(newValue);
+                        merges.push({ c: targetC, value: newValue });
+                        i += 2;
+                    } else {
+                        const targetC = result.length;
+                        moves.push({ fromC: filtered[i].fromC, toC: targetC, value: filtered[i].value });
+                        result.push(filtered[i].value);
+                        i += 1;
+                    }
+                }
+                // Дополняем нулями
+                while (result.length < SIZE) result.push(0);
+                return { newRow: result, moves, merges };
+            }
+
+            // ---------- Определение направления и генерация плана ----------
+            // Возвращает объект с новым board и списком перемещений плиток в абсолютных координатах
+            function computeMove(direction) {
+                // Создаём рабочую копию board
+                let workBoard = board.map(r => [...r]);
+                const moves = [];      // { fromR, fromC, toR, toC, value }
+                const merges = [];     // { r, c, value }
+
+                // Для каждого направления приводим к "сдвигу влево"
+                // и преобразуем координаты обратно.
+                // Чтобы не запутаться, делаем преобразование board -> повёрнутая версия
+                // и обратно с учётом координат.
+
+                function transform(r, c) {
+                    // Возвращает координаты (r, c) в системе "сдвиг влево"
+                    // для текущего направления
+                    switch (direction) {
+                        case 'left':   return { r, c };
+                        case 'right':  return { r, c: SIZE - 1 - c };
+                        case 'up':     return { r: c, c: r };
+                        case 'down':   return { r: SIZE - 1 - c, c: r };
+                    }
+                }
+
+                function inverseTransform(r, c) {
+                    switch (direction) {
+                        case 'left':   return { r, c };
+                        case 'right':  return { r, c: SIZE - 1 - c };
+                        case 'up':     return { r: c, c: r };
+                        case 'down':   return { r: c, c: SIZE - 1 - r };
+                    }
+                }
+
+                // Собираем "повёрнутую" доску в системе "сдвиг влево"
+                const rotatedBoard = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+                for (let r = 0; r < SIZE; r++) {
+                    for (let c = 0; c < SIZE; c++) {
+                        const t = transform(r, c);
+                        rotatedBoard[t.r][t.c] = workBoard[r][c];
+                    }
+                }
+
+                // Проходим по каждой строке rotatedBoard и слайдим влево
+                const newRotated = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+                for (let r = 0; r < SIZE; r++) {
+                    const { newRow, moves: rowMoves, merges: rowMerges } = slideLeftRow(rotatedBoard[r]);
+                    for (let c = 0; c < SIZE; c++) newRotated[r][c] = newRow[c];
+
+                    // Преобразуем ходы обратно в абсолютные координаты
+                    for (const m of rowMoves) {
+                        const fromAbs = inverseTransform(r, m.fromC);
+                        const toAbs = inverseTransform(r, m.toC);
+                        moves.push({
+                            fromR: fromAbs.r, fromC: fromAbs.c,
+                            toR: toAbs.r, toC: toAbs.c,
+                            value: m.value,
+                        });
+                    }
+                    for (const mg of rowMerges) {
+                        const abs = inverseTransform(r, mg.c);
+                        merges.push({ r: abs.r, c: abs.c, value: mg.value });
+                    }
+                }
+
+                // Преобразуем newRotated обратно в нормальные координаты
+                const newBoard = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+                for (let r = 0; r < SIZE; r++) {
+                    for (let c = 0; c < SIZE; c++) {
+                        const abs = inverseTransform(r, c);
+                        newBoard[abs.r][abs.c] = newRotated[r][c];
+                    }
+                }
+
+                return { newBoard, moves, merges };
+            }
+
+            // ---------- Выполнение хода с анимацией ----------
+            function move(direction) {
+                if (gameOver) return;
+
+                const { newBoard, moves, merges } = computeMove(direction);
+
+                // Проверка на изменение
+                let changed = false;
+                for (let r = 0; r < SIZE; r++) {
+                    for (let c = 0; c < SIZE; c++) {
+                        if (board[r][c] !== newBoard[r][c]) { changed = true; break; }
+                    }
+                    if (changed) break;
+                }
+                if (!changed) return;
+
+                // -------- Анимация перемещения существующих плиток --------
+                // Для каждой плитки из tileGrid, которая двигается, применяем transform.
+                // Соответствие плиток и ходов: moves содержит {fromR,fromC,toR,toC,value}.
+                // Нужно найти DOM-элемент в (fromR, fromC) и сдвинуть его.
+                // Плитки, участвующие в слиянии: две плитки едут в одну клетку.
+                // После анимации мы их удаляем и создаём новую объединённую.
+
+                // Собираем элементы, которые нужно сдвинуть
+                const toRemoveAfter = []; // элементы, которые исчезнут (слияние)
+                const movingEls = [];
+
+                // Копируем tileGrid, чтобы не портить во время итерации
+                const oldGrid = tileGrid.map(row => row.slice());
+
+                // Сбрасываем tileGrid — будем заполнять заново
+                tileGrid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+
+                // Группируем ходы по "to" — на случай слияния
+                const movesByTo = new Map();
+                for (const m of moves) {
+                    const key = m.toR + ',' + m.toC;
+                    if (!movesByTo.has(key)) movesByTo.set(key, []);
+                    movesByTo.get(key).push(m);
+                }
+
+                // Для каждого хода — берём плитку из oldGrid и сдвигаем
+                // Важно: если из одной клетки идёт несколько ходов (не должно быть),
+                // обрабатываем аккуратно.
+                const processedFrom = new Set();
+                for (const m of moves) {
+                    const fromKey = m.fromR + ',' + m.fromC;
+                    if (processedFrom.has(fromKey)) continue;
+                    processedFrom.add(fromKey);
+
+                    const tile = oldGrid[m.fromR][m.fromC];
+                    if (!tile) continue;
+
+                    const { x, y } = getPosition(m.toR, m.toC);
+                    tile.el.style.transform = `translate(${x}px, ${y}px)`;
+                    // Обновляем CSS-переменные для будущих анимаций
+                    tile.el.style.setProperty('--tx', x + 'px');
+                    tile.el.style.setProperty('--ty', y + 'px');
+                    movingEls.push(tile.el);
+                }
+
+                // Определяем, какие клетки — результат слияния
+                const mergedSet = new Set();
+                for (const mg of merges) {
+                    mergedSet.add(mg.r + ',' + mg.c);
+                }
+
+                // Определяем, какие клетки получат новую плитку (не слияние) —
+                // туда переместится "победившая" плитка, оставляем её DOM.
+                // Но проще: после анимации удалить все движущиеся и создать заново.
+                // Однако тогда не будет анимации "плавного" скольжения для тех,
+                // что не сливаются, если их удалить. Поэтому лучше:
+                // - Оставляем в DOM те плитки, что в итоге стоят в клетке без слияния
+                //   и являются "единственным" ходом в эту клетку.
+                // - Удаляем плитки, которые участвуют в слиянии.
+                // - Создаём новые (слитые и новые случайные).
+
+                // Определяем "окончательные" плитки: для каждого to, если это слияние —
+                // там будет новая плитка; если не слияние — оставляем существующую.
+
+                // Найдём для каждой конечной клетки "основную" плитку
+                // (первую в списке ходов в эту клетку)
+                const finalTiles = []; // { r, c, value, el, isNew, isMerged }
+
+                for (const [key, list] of movesByTo) {
+                    const [toR, toC] = key.split(',').map(Number);
+                    const isMerge = mergedSet.has(key);
+
+                    if (isMerge) {
+                        // Все плитки, приехавшие сюда, удаляются после анимации
+                        for (const m of list) {
+                            const tile = oldGrid[m.fromR][m.fromC];
+                            if (tile) toRemoveAfter.push(tile.el);
+                        }
+                        // Новая объединённая плитка будет создана после анимации
+                        finalTiles.push({
+                            r: toR, c: toC, value: newBoard[toR][toC],
+                            el: null, isNew: false, isMerged: true
+                        });
+                    } else {
+                        // Оставляем первую (единственную) плитку
+                        const m = list[0];
+                        const tile = oldGrid[m.fromR][m.fromC];
+                        if (tile) {
+                            // Обновляем значение (оно не меняется, но на всякий)
+                            tile.value = newBoard[toR][toC];
+                            tile.el.dataset.value = tile.value;
+                            tile.el.textContent = tile.value;
+                            finalTiles.push({
+                                r: toR, c: toC, value: tile.value,
+                                el: tile.el, isNew: false, isMerged: false
+                            });
+                        } else {
+                            // Если по какой-то причине плитки нет — создадим
+                            finalTiles.push({
+                                r: toR, c: toC, value: newBoard[toR][toC],
+                                el: null, isNew: false, isMerged: false
+                            });
+                        }
+                    }
+                }
+
+                // Обновляем board
+                board = newBoard;
+
+                // Добавляем новую случайную плитку
+                const newPos = addRandomTile();
+
+                // Обновляем score в DOM с анимацией
+                updateScore();
+
+                // Определяем все клетки, где должны быть плитки
+                // (finalTiles + newPos)
+                // Сначала построим карту "что где должно быть"
+                const desired = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+                for (const ft of finalTiles) {
+                    desired[ft.r][ft.c] = ft;
+                }
+                if (newPos) {
+                    desired[newPos.r][newPos.c] = {
+                        r: newPos.r, c: newPos.c, value: board[newPos.r][newPos.c],
+                        el: null, isNew: true, isMerged: false
+                    };
+                }
+
+                // Ждём завершения анимации сдвига, потом:
+                // - удаляем "лишние" плитки (слитые)
+                // - создаём новые (слитые + новая случайная)
+                // - обновляем tileGrid
+                const ANIM_MS = 150;
+                setTimeout(() => {
+                    // Удаляем элементы, участвовавшие в слиянии
+                    for (const el of toRemoveAfter) {
+                        if (el.parentNode) el.parentNode.removeChild(el);
+                    }
+
+                    // Создаём недостающие плитки
+                    for (let r = 0; r < SIZE; r++) {
+                        for (let c = 0; c < SIZE; c++) {
+                            const d = desired[r][c];
+                            if (!d) continue;
+                            if (d.el) {
+                                // Уже есть в DOM
+                                tileGrid[r][c] = { value: d.value, el: d.el };
+                            } else {
+                                const el = createTileElement(d.value, r, c, d.isNew, d.isMerged);
+                                tileContainerEl.appendChild(el);
+                                tileGrid[r][c] = { value: d.value, el };
+                                // Для merged: после анимации pop убираем класс
+                                if (d.isMerged) {
+                                    setTimeout(() => el.classList.remove('merged'), 250);
+                                }
+                                // Для new: после появления убираем класс
+                                if (d.isNew) {
+                                    setTimeout(() => el.classList.remove('new'), 250);
+                                }
+                            }
+                        }
+                    }
+
+                    // Проверка победы
+                    if (won && !continueAfterWin) {
+                        continueAfterWin = true;
+                        showOverlay('ПОБЕДА!', 'ПРОДОЛЖИТЬ');
+                        return;
+                    }
+
+                    // Проверка проигрыша
+                    if (isGameOver()) {
+                        gameOver = true;
+                        showOverlay('ИГРА ОКОНЧЕНА', 'ЗАНОВО');
+                    }
+                }, ANIM_MS);
+            }
+
+            function updateScore() {
+                scoreEl.textContent = score;
+                scoreEl.classList.add('bump');
+                setTimeout(() => scoreEl.classList.remove('bump'), 150);
+            }
+
+            // ---------- Проверка на конец игры ----------
+            function isGameOver() {
+                for (let r = 0; r < SIZE; r++) {
+                    for (let c = 0; c < SIZE; c++) {
+                        if (board[r][c] === 0) return false;
+                    }
+                }
+                for (let r = 0; r < SIZE; r++) {
+                    for (let c = 0; c < SIZE; c++) {
+                        const val = board[r][c];
+                        if (c + 1 < SIZE && board[r][c + 1] === val) return false;
+                        if (r + 1 < SIZE && board[r + 1][c] === val) return false;
+                    }
+                }
+                return true;
+            }
+
+            // ---------- Оверлей ----------
+            function showOverlay(text, btnText) {
+                overlayTextEl.textContent = text;
+                overlayBtn.textContent = btnText;
+                overlayEl.classList.add('show');
+            }
+            function hideOverlay() {
+                overlayEl.classList.remove('show');
+            }
+
+            overlayBtn.addEventListener('click', () => {
+                if (overlayTextEl.textContent === 'ПОБЕДА!') {
+                    hideOverlay();
+                    continueAfterWin = true;
+                    if (isGameOver()) {
+                        gameOver = true;
+                        showOverlay('ИГРА ОКОНЧЕНА', 'ЗАНОВО');
+                    }
+                } else {
+                    initBoard();
+                }
+            });
+
+            newGameBtn.addEventListener('click', () => {
+                initBoard();
+            });
+
+            // ---------- Клавиатура ----------
+            window.addEventListener('keydown', (e) => {
+                const key = e.key;
+                if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+                    e.preventDefault();
+                }
+                if (gameOver) return;
+                if (overlayEl.classList.contains('show') && overlayTextEl.textContent === 'ПОБЕДА!') return;
+
+                switch (key) {
+                    case 'ArrowLeft':  move('left');  break;
+                    case 'ArrowRight': move('right'); break;
+                    case 'ArrowUp':    move('up');    break;
+                    case 'ArrowDown':  move('down');  break;
+                }
+            });
+
+            // ---------- Свайпы ----------
+            let startX = 0, startY = 0, swiping = false;
+
+            function startSwipe(x, y) {
+                startX = x; startY = y; swiping = true;
+            }
+            function endSwipe(x, y) {
+                if (!swiping) return;
+                swiping = false;
+                if (gameOver) return;
+                if (overlayEl.classList.contains('show') && overlayTextEl.textContent === 'ПОБЕДА!') return;
+
+                const dx = x - startX;
+                const dy = y - startY;
+                if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_THRESHOLD) return;
+
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    move(dx > 0 ? 'right' : 'left');
+                } else {
+                    move(dy > 0 ? 'down' : 'up');
+                }
+            }
+
+            gridWrapEl.addEventListener('touchstart', (e) => {
+                if (e.target.closest('.overlay-btn')) return;
+                const t = e.touches[0];
+                startSwipe(t.clientX, t.clientY);
+            }, { passive: true });
+
+            gridWrapEl.addEventListener('touchend', (e) => {
+                if (e.target.closest('.overlay-btn')) return;
+                const t = e.changedTouches[0];
+                endSwipe(t.clientX, t.clientY);
+            }, { passive: true });
+
+            gridWrapEl.addEventListener('touchcancel', () => { swiping = false; }, { passive: true });
+
+            let mouseDown = false;
+            gridWrapEl.addEventListener('mousedown', (e) => {
+                if (e.target.closest('.overlay-btn')) return;
+                mouseDown = true;
+                startSwipe(e.clientX, e.clientY);
+            });
+            window.addEventListener('mouseup', (e) => {
+                if (!mouseDown) return;
+                mouseDown = false;
+                if (e.target.closest('.overlay-btn')) return;
+                endSwipe(e.clientX, e.clientY);
+            });
+            window.addEventListener('mouseleave', () => {
+                if (mouseDown) { mouseDown = false; swiping = false; }
+            });
+
+            // ---------- Пересчёт размеров при ресайзе ----------
+            window.addEventListener('resize', () => {
+                // Пересчитываем позиции всех плиток по текущему board
+                // (плавно обновляем transform)
+                for (let r = 0; r < SIZE; r++) {
+                    for (let c = 0; c < SIZE; c++) {
+                        const t = tileGrid[r][c];
+                        if (!t || !t.el) continue;
+                        const { x, y, tileSize } = getPosition(r, c);
+                        t.el.style.transform = `translate(${x}px, ${y}px)`;
+                        t.el.style.setProperty('--tx', x + 'px');
+                        t.el.style.setProperty('--ty', y + 'px');
+                        t.el.style.width = tileSize + 'px';
+                        t.el.style.height = tileSize + 'px';
+                        const digits = String(t.value).length;
+                        let fontSize;
+                        if (digits <= 2) fontSize = tileSize * 0.45;
+                        else if (digits === 3) fontSize = tileSize * 0.38;
+                        else if (digits === 4) fontSize = tileSize * 0.30;
+                        else fontSize = tileSize * 0.24;
+                        t.el.style.fontSize = fontSize + 'px';
+                    }
+                }
+            });
+
+            // ---------- СТАРТ ----------
+            createBackground();
+            // Небольшая задержка, чтобы контейнер получил размеры
+            requestAnimationFrame(() => {
+                initBoard();
+            });
+
+        })();
+    </script>
+</body>
+</html>
